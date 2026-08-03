@@ -1,0 +1,31 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python cache and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Local backup files
+*_backup.py
+*.bak
+
+# Temporary Excel files
+~$*.xlsx
+
+# Generated application output
+output/*
+!output/.gitkeep
+
+# Operating system files
+Thumbs.db
+Desktop.ini
+.DS_Store

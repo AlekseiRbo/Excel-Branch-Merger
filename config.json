@@ -1,0 +1,54 @@
+{
+  "canonical_columns": {
+    "branch": [
+      "branch",
+      "branch name",
+      "office",
+      "location"
+    ],
+    "customer_name": [
+      "customer name",
+      "client",
+      "customer",
+      "client name",
+      "buyer"
+    ],
+    "sale_date": [
+      "sale date",
+      "order date",
+      "date",
+      "transaction date"
+    ],
+    "amount": [
+      "amount",
+      "total",
+      "revenue",
+      "sale amount",
+      "total amount"
+    ],
+    "invoice_number": [
+      "invoice number",
+      "invoice no",
+      "invoice",
+      "order id",
+      "transaction id"
+    ]
+  },
+  "required_fields": [
+    "customer_name",
+    "sale_date",
+    "amount"
+  ],
+  "duplicate_key": [
+    "customer_name",
+    "sale_date",
+    "amount",
+    "invoice_number"
+  ],
+  "date_formats": [
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%m/%d/%Y",
+    "%d.%m.%Y"
+  ]
+}
