@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from numbers import Number
 from typing import Iterable
 
 import pandas as pd
@@ -59,6 +63,61 @@ def normalize_columns(
         )
 
     return normalized_df
+
+
+_AMOUNT_PATTERN = re.compile(
+    r"-?(?:[0-9]+(?:\.[0-9]+)?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?)"
+)
+
+
+def parse_amount(value: object) -> float | None:
+    """Parse a supported amount without rewriting unknown characters.
+
+    Accepted text formats are plain decimal numbers (``1234.56``) and
+    comma-grouped thousands (``1,234.56``), with optional surrounding
+    whitespace and an optional leading minus sign. Numeric cell values are
+    accepted when finite. Unsupported or non-finite values return ``None``.
+    Positivity is validated separately as a business rule.
+    """
+    if value is None or value is pd.NA or isinstance(value, bool):
+        return None
+
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        try:
+            numeric_value = float(value)
+        except (OverflowError, ValueError):
+            return None
+        return numeric_value if math.isfinite(numeric_value) else None
+
+    if isinstance(value, Number):
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return numeric_value if math.isfinite(numeric_value) else None
+
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+    if not text or _AMOUNT_PATTERN.fullmatch(text) is None:
+        return None
+
+    try:
+        decimal_value = Decimal(text.replace(",", ""))
+    except InvalidOperation:
+        return None
+
+    if not decimal_value.is_finite():
+        return None
+
+    try:
+        numeric_value = float(decimal_value)
+    except (OverflowError, ValueError):
+        return None
+    return numeric_value if math.isfinite(numeric_value) else None
 
 
 def parse_date_value(
@@ -148,14 +207,11 @@ def validate_dataframe(
             dtype="bool",
         )
 
+    original_amounts = pd.Series(pd.NA, index=df.index, dtype="object")
     if "amount" in df.columns:
-        cleaned_amount = (
-            df["amount"]
-            .astype("string")
-            .str.replace(",", "", regex=False)
-            .str.replace(r"[^\d.\-]", "", regex=True)
-        )
-        df["amount"] = pd.to_numeric(cleaned_amount, errors="coerce")
+        original_amounts = df["amount"].copy()
+        parsed_amounts = [parse_amount(value) for value in original_amounts]
+        df["amount"] = pd.Series(parsed_amounts, index=df.index, dtype="float64")
 
     error_messages = pd.Series("", index=df.index, dtype="string")
 
@@ -177,8 +233,15 @@ def validate_dataframe(
     if "amount" in df.columns:
         invalid_amounts = df["amount"].isna()
         non_positive_amounts = df["amount"].notna() & (df["amount"] <= 0)
-        error_messages.loc[invalid_amounts] += "Invalid amount; "
-        error_messages.loc[non_positive_amounts] += "Amount must be greater than zero; "
+        for row_index in df.index[invalid_amounts]:
+            original_value = original_amounts.loc[row_index]
+            error_messages.loc[row_index] += (
+                f"Invalid amount: {original_value!r}; expected a number such as "
+                "1234.56 or 1,234.56; "
+            )
+        error_messages.loc[non_positive_amounts] += (
+            "Amount must be greater than zero; "
+        )
 
     df["validation_errors"] = error_messages.str.rstrip("; ")
 
