@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
 
 from .validators import normalize_columns, validate_dataframe
-from .version import APP_NAME, __version__
+
+REPORT_NAME = "consolidated_report.xlsx"
+ERROR_NAME = "error_report.xlsx"
+LOG_NAME = "processing_log.txt"
 
 
 @dataclass(frozen=True)
@@ -21,216 +23,285 @@ class ProcessingResult:
     report_path: Path
     error_path: Path
     log_path: Path
+    worksheet_successes: tuple[str, ...] = ()
+    worksheet_failures: tuple[str, ...] = ()
 
 
-ProgressCallback = Callable[[int, int, str], None]
+def _cfg(config: dict[str, Any], *names: str, default: Any = None) -> Any:
+    for name in names:
+        if name in config:
+            return config[name]
+    return default
 
 
-def read_excel_file(path: Path) -> pd.DataFrame:
-    workbook = pd.ExcelFile(path)
-    frames: list[pd.DataFrame] = []
-
-    for sheet_name in workbook.sheet_names:
-        frame = pd.read_excel(workbook, sheet_name=sheet_name)
-        if frame.empty:
-            continue
-
-        frame["_source_file"] = path.name
-        frame["_source_sheet"] = sheet_name
-        frame["_source_row"] = range(2, len(frame) + 2)
-        frames.append(frame)
-
-    if not frames:
-        return pd.DataFrame()
-
-    return pd.concat(frames, ignore_index=True)
+def _empty_like(dataframe: pd.DataFrame) -> pd.DataFrame:
+    return dataframe.iloc[0:0].copy()
 
 
-def autosize_worksheet(
-    writer: pd.ExcelWriter,
-    sheet_name: str,
+def _source_error_rows(
     dataframe: pd.DataFrame,
+    filename: str,
+    sheet_name: str,
+    message: str,
+) -> pd.DataFrame:
+    rows = dataframe.copy()
+    if rows.empty:
+        rows = pd.DataFrame({"validation_errors": [message]})
+        rows["source_row"] = pd.NA
+    else:
+        rows["validation_errors"] = message
+        rows["source_row"] = rows.index.to_series().map(lambda value: int(value) + 2)
+    rows["source_file"] = filename
+    rows["source_sheet"] = sheet_name
+    return rows
+
+
+def _prepare_sheet(
+    dataframe: pd.DataFrame,
+    *,
+    filename: str,
+    sheet_name: str,
+    canonical_columns: dict[str, list[str]],
+    required_fields: list[str],
+    date_formats: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+    if dataframe.empty and len(dataframe.columns) == 0:
+        return dataframe.copy(), dataframe.copy(), True
+
+    normalized = normalize_columns(dataframe, canonical_columns)
+    missing_columns = [name for name in required_fields if name not in normalized.columns]
+    if missing_columns:
+        message = "Missing required column(s): " + ", ".join(missing_columns)
+        return _empty_like(normalized), _source_error_rows(
+            normalized, filename, sheet_name, message
+        ), False
+
+    normalized = normalized.copy()
+    normalized["source_file"] = filename
+    normalized["source_sheet"] = sheet_name
+    normalized["source_row"] = normalized.index.to_series().map(lambda value: int(value) + 2)
+    validation = validate_dataframe(normalized, required_fields, date_formats)
+    return validation.valid_rows, validation.error_rows, True
+
+
+
+def _deduplicate(
+    dataframe: pd.DataFrame,
+    duplicate_key: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    if dataframe.empty or not duplicate_key:
+        return dataframe.copy(), _empty_like(dataframe), 0
+    # Legacy behavior until DEDUP-04: silently shrink the configured key.
+    available_key = [name for name in duplicate_key if name in dataframe.columns]
+    if not available_key:
+        return dataframe.copy(), _empty_like(dataframe), 0
+    duplicate_mask = dataframe.duplicated(subset=available_key, keep="first")
+    duplicates = dataframe.loc[duplicate_mask].copy()
+    if not duplicates.empty:
+        duplicates["validation_errors"] = "Duplicate record"
+    return dataframe.loc[~duplicate_mask].copy(), duplicates, 0
+
+
+
+def _autosize_worksheet(
+    worksheet,
+    dataframe: pd.DataFrame,
+    *,
+    legacy_empty_bug: bool = False,
 ) -> None:
-    worksheet = writer.sheets[sheet_name]
+    for position, column_name in enumerate(dataframe.columns, start=1):
+        header_width = len(str(column_name))
+        if legacy_empty_bug:
+            # Intentionally retained until EXPORT-03 for the Consolidated sheet:
+            # an empty nullable series can return pd.NA and make max() fail.
+            data_width = dataframe[column_name].astype("string").str.len().max()
+        else:
+            lengths = dataframe[column_name].map(
+                lambda value: 0 if pd.isna(value) else len(str(value))
+            )
+            data_width = int(lengths.max()) if not lengths.empty else 0
+        width = min(max(header_width, data_width) + 2, 60)
+        worksheet.column_dimensions[get_column_letter(position)].width = width
 
-    for index, column in enumerate(dataframe.columns, start=1):
-        values = dataframe[column].astype("string").fillna("")
-        width = min(max(len(str(column)), values.str.len().max()) + 2, 45)
-        worksheet.column_dimensions[
-            worksheet.cell(row=1, column=index).column_letter
-        ].width = width
 
-        if str(column) == "sale_date":
-            for row in worksheet.iter_rows(
-                min_row=2,
-                max_row=worksheet.max_row,
-                min_col=index,
-                max_col=index,
-            ):
-                row[0].number_format = "yyyy-mm-dd"
+def _write_dataframe_sheet(
+    writer: pd.ExcelWriter,
+    dataframe: pd.DataFrame,
+    sheet_name: str,
+    *,
+    legacy_empty_bug: bool = False,
+) -> None:
+    dataframe.to_excel(writer, sheet_name=sheet_name, index=False)
+    _autosize_worksheet(
+        writer.book[sheet_name], dataframe, legacy_empty_bug=legacy_empty_bug
+    )
 
-    worksheet.freeze_panes = "A2"
-    worksheet.auto_filter.ref = worksheet.dimensions
+
+def _write_report_workbook(path: Path, consolidated: pd.DataFrame, summary: pd.DataFrame) -> None:
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        _write_dataframe_sheet(
+            writer, consolidated, "Consolidated", legacy_empty_bug=True
+        )
+        _write_dataframe_sheet(writer, summary, "Summary")
+
+
+def _write_error_workbook(path: Path, errors: pd.DataFrame) -> None:
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        _write_dataframe_sheet(writer, errors, "Errors")
+
+
+
+def _write_outputs(
+    output_dir: Path,
+    consolidated: pd.DataFrame,
+    errors: pd.DataFrame,
+    summary: pd.DataFrame,
+    log_lines: list[str],
+) -> tuple[Path, Path, Path]:
+    report_path = output_dir / REPORT_NAME
+    error_path = output_dir / ERROR_NAME
+    log_path = output_dir / LOG_NAME
+    # Legacy direct writes until OUTPUT-08.
+    _write_report_workbook(report_path, consolidated, summary)
+    _write_error_workbook(error_path, errors)
+    log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+    return report_path, error_path, log_path
+
 
 
 def process_folder(
     input_dir: Path,
     output_dir: Path,
     config: dict[str, Any],
-    progress_callback: ProgressCallback | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> ProcessingResult:
-    input_dir.mkdir(parents=True, exist_ok=True)
+
+    input_dir = input_dir.expanduser().resolve()
+    output_dir = output_dir.expanduser().resolve()
+    if not input_dir.is_dir():
+        raise FileNotFoundError(f"Input folder does not exist: {input_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    input_files = sorted(input_dir.glob("*.xlsx"))
 
-    excel_files = sorted(
-        path for path in input_dir.glob("*.xlsx") if not path.name.startswith("~$")
-    )
+    canonical_columns = _cfg(config, "canonical_columns", "column_aliases", default={})
+    required_fields = list(_cfg(config, "required_fields", default=[]))
+    date_formats = list(_cfg(config, "date_formats", default=["%Y-%m-%d"]))
+    duplicate_key = list(_cfg(config, "duplicate_key", "duplicate_keys", default=[]))
 
-    if not excel_files:
-        raise FileNotFoundError(
-            f"No .xlsx files found in input folder: {input_dir}"
-        )
-
-    valid_frames: list[pd.DataFrame] = []
-    error_frames: list[pd.DataFrame] = []
+    valid_parts: list[pd.DataFrame] = []
+    error_parts: list[pd.DataFrame] = []
+    worksheet_successes: list[str] = []
+    worksheet_failures: list[str] = []
+    files_succeeded = 0
+    files_failed = 0
+    files_skipped = 0
+    total_input_rows = 0
     log_lines: list[str] = []
-    total_files = len(excel_files)
 
-    for index, file_path in enumerate(excel_files, start=1):
+    for current, workbook_path in enumerate(input_files, start=1):
+        if progress_callback:
+            progress_callback(current, len(input_files), workbook_path.name)
+        workbook_had_success = False
+        workbook_had_sheet = False
         try:
-            raw_df = read_excel_file(file_path)
-            if raw_df.empty:
-                log_lines.append(f"SKIPPED | {file_path.name} | no data")
+            excel_file = pd.ExcelFile(workbook_path)
+            for sheet_name in excel_file.sheet_names:
+                frame = pd.read_excel(excel_file, sheet_name=sheet_name)
+                if frame.empty and len(frame.columns) == 0:
+                    files_skipped += 0
+                    log_lines.append(f"SKIP {workbook_path.name}::{sheet_name}: empty worksheet")
+                    continue
+                workbook_had_sheet = True
+                total_input_rows += len(frame)
+                try:
+                    valid_rows, error_rows, sheet_ok = _prepare_sheet(
+                        frame,
+                        filename=workbook_path.name,
+                        sheet_name=sheet_name,
+                        canonical_columns=canonical_columns,
+                        required_fields=required_fields,
+                        date_formats=date_formats,
+                    )
+                except Exception as exc:
+                    error_rows = _source_error_rows(
+                        frame,
+                        workbook_path.name,
+                        sheet_name,
+                        f"Worksheet processing failed: {exc}",
+                    )
+                    valid_rows = _empty_like(frame)
+                    sheet_ok = False
+                if not valid_rows.empty:
+                    valid_parts.append(valid_rows)
+                if not error_rows.empty:
+                    error_parts.append(error_rows)
+                identity = f"{workbook_path.name}::{sheet_name}"
+                if sheet_ok:
+                    worksheet_successes.append(identity)
+                    workbook_had_success = True
+                    log_lines.append(f"OK {identity}: valid={len(valid_rows)} errors={len(error_rows)}")
+                else:
+                    worksheet_failures.append(identity)
+                    log_lines.append(f"FAIL {identity}: errors={len(error_rows)}")
+            if workbook_had_success:
+                files_succeeded += 1
+            elif workbook_had_sheet:
+                files_failed += 1
             else:
-                normalized_df = normalize_columns(
-                    raw_df,
-                    config["canonical_columns"],
-                )
-                validation = validate_dataframe(
-                    normalized_df,
-                    config["required_fields"],
-                    config["date_formats"],
-                )
-
-                valid_frames.append(validation.valid_rows)
-                error_frames.append(validation.error_rows)
-                log_lines.append(
-                    f"OK | {file_path.name} | "
-                    f"valid={len(validation.valid_rows)} | "
-                    f"errors={len(validation.error_rows)}"
-                )
+                files_skipped += 1
+                log_lines.append(f"SKIP {workbook_path.name}: no non-empty worksheets")
         except Exception as exc:
-            log_lines.append(
-                f"FAILED | {file_path.name} | "
-                f"{type(exc).__name__}: {exc}"
-            )
-            error_frames.append(
-                pd.DataFrame(
-                    [
-                        {
-                            "_source_file": file_path.name,
-                            "validation_errors": (
-                                f"File processing failed: "
-                                f"{type(exc).__name__}: {exc}"
-                            ),
-                        }
-                    ]
-                )
-            )
-        finally:
-            if progress_callback is not None:
-                progress_callback(index, total_files, file_path.name)
+            files_failed += 1
+            worksheet_failures.append(f"{workbook_path.name}::<workbook>")
+            error_parts.append(pd.DataFrame([{
+                "source_file": workbook_path.name,
+                "source_sheet": pd.NA,
+                "source_row": pd.NA,
+                "validation_errors": f"Unable to read workbook: {exc}",
+            }]))
+            log_lines.append(f"FAIL {workbook_path.name}: {exc}")
 
-    combined_valid = (
-        pd.concat(valid_frames, ignore_index=True) if valid_frames else pd.DataFrame()
+    if valid_parts:
+        combined_valid = pd.concat(valid_parts, ignore_index=True, sort=False)
+    else:
+        canonical_names = list(canonical_columns.keys())
+        combined_valid = pd.DataFrame(columns=canonical_names + ["source_file", "source_sheet", "source_row", "validation_errors"])
+
+    if error_parts:
+        validation_errors = pd.concat(error_parts, ignore_index=True, sort=False)
+    else:
+        validation_errors = _empty_like(combined_valid)
+
+    consolidated, duplicates, incomplete_count = _deduplicate(combined_valid, duplicate_key)
+    if "validation_errors" in consolidated.columns:
+        consolidated = consolidated.drop(columns=["validation_errors"])
+
+    invalid_count = len(validation_errors)
+    duplicate_count = len(duplicates)
+    all_errors = pd.concat([validation_errors, duplicates], ignore_index=True, sort=False)
+
+
+
+    summary_values = {
+        "Files processed": files_succeeded,
+        "Valid rows": len(consolidated),
+        "Error rows": len(all_errors),
+        "Duplicates removed": duplicate_count,
+    }
+
+    summary = pd.DataFrame({"Metric": list(summary_values.keys()), "Value": list(summary_values.values())})
+    report_path, error_path, log_path = _write_outputs(
+        output_dir, consolidated, all_errors, summary, log_lines
     )
-    non_empty_error_frames = [
-        frame for frame in error_frames if not frame.empty and not frame.isna().all().all()
-    ]
-    combined_errors = (
-        pd.concat(non_empty_error_frames, ignore_index=True)
-        if non_empty_error_frames
-        else pd.DataFrame()
-    )
-
-    duplicate_key = [
-        field for field in config["duplicate_key"] if field in combined_valid.columns
-    ]
-
-    duplicates_removed = 0
-    if duplicate_key and not combined_valid.empty:
-        duplicate_mask = combined_valid.duplicated(
-            subset=duplicate_key,
-            keep="first",
-        )
-        duplicates_removed = int(duplicate_mask.sum())
-
-        duplicate_rows = combined_valid.loc[duplicate_mask].copy()
-        if not duplicate_rows.empty:
-            duplicate_rows["validation_errors"] = (
-                "Duplicate row removed using key: " + ", ".join(duplicate_key)
-            )
-            combined_errors = pd.concat(
-                [combined_errors, duplicate_rows],
-                ignore_index=True,
-            )
-
-        combined_valid = combined_valid.loc[~duplicate_mask].copy()
-
-    canonical_order = list(config["canonical_columns"].keys())
-    metadata_order = ["_source_file", "_source_sheet", "_source_row"]
-
-    ordered_valid_columns = [
-        column
-        for column in canonical_order + metadata_order
-        if column in combined_valid.columns
-    ]
-    remaining_valid_columns = [
-        column
-        for column in combined_valid.columns
-        if column not in ordered_valid_columns and column != "validation_errors"
-    ]
-    combined_valid = combined_valid[ordered_valid_columns + remaining_valid_columns]
-
-    report_path = output_dir / "consolidated_report.xlsx"
-    error_path = output_dir / "error_report.xlsx"
-    log_path = output_dir / "processing_log.txt"
-
-    with pd.ExcelWriter(report_path, engine="openpyxl") as writer:
-        combined_valid.to_excel(writer, sheet_name="Consolidated", index=False)
-        autosize_worksheet(writer, "Consolidated", combined_valid)
-
-        summary = pd.DataFrame(
-            [
-                {"metric": "Files discovered", "value": len(excel_files)},
-                {"metric": "Valid rows", "value": len(combined_valid)},
-                {"metric": "Error rows", "value": len(combined_errors)},
-                {"metric": "Duplicates removed", "value": duplicates_removed},
-            ]
-        )
-        summary.to_excel(writer, sheet_name="Summary", index=False)
-        autosize_worksheet(writer, "Summary", summary)
-
-    with pd.ExcelWriter(error_path, engine="openpyxl") as writer:
-        combined_errors.to_excel(writer, sheet_name="Errors", index=False)
-        autosize_worksheet(writer, "Errors", combined_errors)
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-    log_header = [
-        f"{APP_NAME} v{__version__} log",
-        f"UTC timestamp: {timestamp}",
-        f"Input folder: {input_dir}",
-        f"Output folder: {output_dir}",
-        "",
-    ]
-    log_path.write_text("\n".join(log_header + log_lines), encoding="utf-8")
 
     return ProcessingResult(
-        files_processed=len(excel_files),
-        valid_rows=len(combined_valid),
-        error_rows=len(combined_errors),
-        duplicates_removed=duplicates_removed,
+        files_processed=files_succeeded,
+        valid_rows=len(consolidated),
+        error_rows=len(all_errors),
+        duplicates_removed=duplicate_count,
         report_path=report_path,
         error_path=error_path,
         log_path=log_path,
+        worksheet_successes=tuple(worksheet_successes),
+        worksheet_failures=tuple(worksheet_failures),
     )
