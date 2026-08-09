@@ -103,18 +103,11 @@ def _deduplicate(
 
 
 
-def _autosize_worksheet(
-    worksheet,
-    dataframe: pd.DataFrame,
-    *,
-    legacy_empty_bug: bool = False,
-) -> None:
+def _autosize_worksheet(worksheet, dataframe: pd.DataFrame) -> None:
     for position, column_name in enumerate(dataframe.columns, start=1):
         header_width = len(str(column_name))
-        if legacy_empty_bug:
-            # Intentionally retained until EXPORT-03 for the Consolidated sheet:
-            # an empty nullable series can return pd.NA and make max() fail.
-            data_width = dataframe[column_name].astype("string").str.len().max()
+        if dataframe.empty:
+            data_width = 0
         else:
             lengths = dataframe[column_name].map(
                 lambda value: 0 if pd.isna(value) else len(str(value))
@@ -124,24 +117,15 @@ def _autosize_worksheet(
         worksheet.column_dimensions[get_column_letter(position)].width = width
 
 
-def _write_dataframe_sheet(
-    writer: pd.ExcelWriter,
-    dataframe: pd.DataFrame,
-    sheet_name: str,
-    *,
-    legacy_empty_bug: bool = False,
-) -> None:
+
+def _write_dataframe_sheet(writer: pd.ExcelWriter, dataframe: pd.DataFrame, sheet_name: str) -> None:
     dataframe.to_excel(writer, sheet_name=sheet_name, index=False)
-    _autosize_worksheet(
-        writer.book[sheet_name], dataframe, legacy_empty_bug=legacy_empty_bug
-    )
+    _autosize_worksheet(writer.book[sheet_name], dataframe)
 
 
 def _write_report_workbook(path: Path, consolidated: pd.DataFrame, summary: pd.DataFrame) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        _write_dataframe_sheet(
-            writer, consolidated, "Consolidated", legacy_empty_bug=True
-        )
+        _write_dataframe_sheet(writer, consolidated, "Consolidated")
         _write_dataframe_sheet(writer, summary, "Summary")
 
 
@@ -278,7 +262,12 @@ def process_folder(
 
     invalid_count = len(validation_errors)
     duplicate_count = len(duplicates)
-    all_errors = pd.concat([validation_errors, duplicates], ignore_index=True, sort=False)
+    error_frames = [frame for frame in (validation_errors, duplicates) if not frame.empty]
+    all_errors = (
+        pd.concat(error_frames, ignore_index=True, sort=False)
+        if error_frames
+        else _empty_like(combined_valid)
+    )
 
 
 
