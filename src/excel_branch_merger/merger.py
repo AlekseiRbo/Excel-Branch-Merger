@@ -91,15 +91,31 @@ def _deduplicate(
 ) -> tuple[pd.DataFrame, pd.DataFrame, int]:
     if dataframe.empty or not duplicate_key:
         return dataframe.copy(), _empty_like(dataframe), 0
-    # Legacy behavior until DEDUP-04: silently shrink the configured key.
-    available_key = [name for name in duplicate_key if name in dataframe.columns]
-    if not available_key:
-        return dataframe.copy(), _empty_like(dataframe), 0
-    duplicate_mask = dataframe.duplicated(subset=available_key, keep="first")
-    duplicates = dataframe.loc[duplicate_mask].copy()
+
+    missing_columns = [name for name in duplicate_key if name not in dataframe.columns]
+    if missing_columns:
+        # Never silently shrink the configured key. Keep rows and report them as
+        # incomplete-key rows; RESULT/METRICS tasks expose this count to the UI.
+        return dataframe.copy(), _empty_like(dataframe), len(dataframe)
+
+    key_frame = dataframe[duplicate_key]
+    complete = pd.Series(True, index=dataframe.index, dtype="bool")
+    for name in duplicate_key:
+        series = key_frame[name]
+        missing = series.isna()
+        if series.dtype == "object" or str(series.dtype).startswith("string"):
+            missing = missing | series.astype("string").str.strip().eq("")
+        complete &= ~missing.fillna(True)
+
+    eligible = dataframe.loc[complete]
+    duplicate_mask = eligible.duplicated(subset=duplicate_key, keep="first")
+    duplicate_indexes = eligible.index[duplicate_mask]
+    duplicates = dataframe.loc[duplicate_indexes].copy()
     if not duplicates.empty:
-        duplicates["validation_errors"] = "Duplicate record"
-    return dataframe.loc[~duplicate_mask].copy(), duplicates, 0
+        duplicates["validation_errors"] = "Duplicate record (complete configured key)"
+    kept = dataframe.drop(index=duplicate_indexes).copy()
+    incomplete_count = int((~complete).sum())
+    return kept, duplicates, incomplete_count
 
 
 
@@ -257,6 +273,10 @@ def process_folder(
         validation_errors = _empty_like(combined_valid)
 
     consolidated, duplicates, incomplete_count = _deduplicate(combined_valid, duplicate_key)
+    if incomplete_count:
+        log_lines.append(
+            f"WARN incomplete duplicate key: {incomplete_count} row(s) kept and excluded from deduplication"
+        )
     if "validation_errors" in consolidated.columns:
         consolidated = consolidated.drop(columns=["validation_errors"])
 
