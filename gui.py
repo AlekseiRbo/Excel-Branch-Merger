@@ -14,7 +14,7 @@ from typing import Callable
 from PIL import Image, ImageDraw, ImageFilter, ImageTk
 
 from src.excel_branch_merger.config import load_config
-from src.excel_branch_merger.merger import ProcessingResult, process_folder
+from src.excel_branch_merger.merger import ProcessingResult, ProcessingStatus, process_folder
 from src.excel_branch_merger.version import APP_NAME, __version__
 
 
@@ -895,7 +895,12 @@ class ExcelBranchMergerApp(tk.Tk):
         }
         for key, value in values.items():
             self.canvas.itemconfigure(self._metric_items[key], text=str(value))
-        self._draw_status("Processing completed successfully.", state="success")
+        if result.status is ProcessingStatus.FAILED:
+            self._draw_status("Processing failed. No usable input files were processed.", state="error")
+        elif result.status is ProcessingStatus.COMPLETED_WITH_WARNINGS:
+            self._draw_status("Processing completed with warnings.", state="processing")
+        else:
+            self._draw_status("Processing completed successfully.", state="success")
 
     def _handle_error(self, payload: object) -> None:
         self._buttons["process"].set_enabled(True)
