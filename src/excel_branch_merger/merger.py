@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +15,12 @@ ERROR_NAME = "error_report.xlsx"
 LOG_NAME = "processing_log.txt"
 
 
+class ProcessingStatus(str, Enum):
+    SUCCESS = "SUCCESS"
+    COMPLETED_WITH_WARNINGS = "COMPLETED_WITH_WARNINGS"
+    FAILED = "FAILED"
+
+
 @dataclass(frozen=True)
 class ProcessingResult:
     files_processed: int
@@ -25,6 +32,13 @@ class ProcessingResult:
     log_path: Path
     worksheet_successes: tuple[str, ...] = ()
     worksheet_failures: tuple[str, ...] = ()
+    files_discovered: int = 0
+    files_succeeded: int = 0
+    files_failed: int = 0
+    files_skipped: int = 0
+    worksheets_succeeded: int = 0
+    worksheets_failed: int = 0
+    status: ProcessingStatus = ProcessingStatus.SUCCESS
 
 
 def _cfg(config: dict[str, Any], *names: str, default: Any = None) -> Any:
@@ -298,6 +312,13 @@ def process_folder(
     )
 
 
+    if files_succeeded == 0:
+        status = ProcessingStatus.FAILED
+    elif files_failed or worksheet_failures or incomplete_count:
+        status = ProcessingStatus.COMPLETED_WITH_WARNINGS
+    else:
+        status = ProcessingStatus.SUCCESS
+
 
     summary_values = {
         "Files processed": files_succeeded,
@@ -321,4 +342,12 @@ def process_folder(
         log_path=log_path,
         worksheet_successes=tuple(worksheet_successes),
         worksheet_failures=tuple(worksheet_failures),
+
+        files_discovered=len(input_files),
+        files_succeeded=files_succeeded,
+        files_failed=files_failed,
+        files_skipped=files_skipped,
+        worksheets_succeeded=len(worksheet_successes),
+        worksheets_failed=len(worksheet_failures),
+        status=status,
     )
