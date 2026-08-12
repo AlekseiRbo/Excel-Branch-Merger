@@ -824,6 +824,10 @@ class ExcelBranchMergerApp(tk.Tk):
             messagebox.showerror(APP_NAME, "Please select a valid input folder.")
             return
 
+        if input_dir.resolve() == output_dir.resolve():
+            messagebox.showerror(APP_NAME, "Input and output folders must be different.")
+            return
+
         self._last_result = None
         self._buttons["process"].set_enabled(False)
         self._buttons["report"].set_enabled(False)
