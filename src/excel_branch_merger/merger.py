@@ -180,8 +180,16 @@ def process_folder(
     output_dir = output_dir.expanduser().resolve()
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input folder does not exist: {input_dir}")
+    if input_dir == output_dir:
+        raise ValueError("Input and output folders must be different.")
     output_dir.mkdir(parents=True, exist_ok=True)
-    input_files = sorted(input_dir.glob("*.xlsx"))
+    excluded_names = {REPORT_NAME, ERROR_NAME}
+    input_files = sorted(
+        path for path in input_dir.glob("*.xlsx")
+        if not path.name.startswith("~$")
+        and path.name not in excluded_names
+        and not path.name.startswith(".")
+    )
 
     canonical_columns = _cfg(config, "canonical_columns", "column_aliases", default={})
     required_fields = list(_cfg(config, "required_fields", default=[]))
