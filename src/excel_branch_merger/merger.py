@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from enum import Enum
 from dataclasses import dataclass
 from pathlib import Path
@@ -180,10 +183,22 @@ def _write_outputs(
     report_path = output_dir / REPORT_NAME
     error_path = output_dir / ERROR_NAME
     log_path = output_dir / LOG_NAME
-    # Legacy direct writes until OUTPUT-08.
-    _write_report_workbook(report_path, consolidated, summary)
-    _write_error_workbook(error_path, errors)
-    log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+    temp_dir = Path(tempfile.mkdtemp(prefix=".excel-branch-merger-", dir=output_dir))
+    try:
+        temp_report = temp_dir / REPORT_NAME
+        temp_error = temp_dir / ERROR_NAME
+        temp_log = temp_dir / LOG_NAME
+        _write_report_workbook(temp_report, consolidated, summary)
+        _write_error_workbook(temp_error, errors)
+        temp_log.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+        for path in (temp_report, temp_error, temp_log):
+            if not path.exists():
+                raise OSError(f"Expected output was not created: {path.name}")
+        os.replace(temp_report, report_path)
+        os.replace(temp_error, error_path)
+        os.replace(temp_log, log_path)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
     return report_path, error_path, log_path
 
 
