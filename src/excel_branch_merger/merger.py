@@ -38,6 +38,11 @@ class ProcessingResult:
     files_skipped: int = 0
     worksheets_succeeded: int = 0
     worksheets_failed: int = 0
+    invalid_rows: int = 0
+    duplicate_rows: int = 0
+    incomplete_dedup_key_rows: int = 0
+    total_input_rows: int = 0
+    total_rejected_rows: int = 0
     status: ProcessingStatus = ProcessingStatus.SUCCESS
 
 
@@ -321,13 +326,23 @@ def process_folder(
 
 
     summary_values = {
-        "Files processed": files_succeeded,
+        "Files discovered": len(input_files),
+        "Files succeeded": files_succeeded,
+        "Files failed": files_failed,
+        "Worksheets succeeded": len(worksheet_successes),
+        "Worksheets failed": len(worksheet_failures),
+        "Total input rows": total_input_rows,
         "Valid rows": len(consolidated),
-        "Error rows": len(all_errors),
-        "Duplicates removed": duplicate_count,
+        "Invalid rows": invalid_count,
+        "Duplicate rows": duplicate_count,
+        "Incomplete dedup key rows": incomplete_count,
+        "Total rejected rows": invalid_count + duplicate_count,
     }
 
     summary = pd.DataFrame({"Metric": list(summary_values.keys()), "Value": list(summary_values.values())})
+    log_lines.extend(
+        f"SUMMARY {metric}: {value}" for metric, value in summary_values.items()
+    )
     report_path, error_path, log_path = _write_outputs(
         output_dir, consolidated, all_errors, summary, log_lines
     )
@@ -335,7 +350,7 @@ def process_folder(
     return ProcessingResult(
         files_processed=files_succeeded,
         valid_rows=len(consolidated),
-        error_rows=len(all_errors),
+        error_rows=invalid_count + duplicate_count,
         duplicates_removed=duplicate_count,
         report_path=report_path,
         error_path=error_path,
@@ -349,5 +364,10 @@ def process_folder(
         files_skipped=files_skipped,
         worksheets_succeeded=len(worksheet_successes),
         worksheets_failed=len(worksheet_failures),
+        invalid_rows=invalid_count,
+        duplicate_rows=duplicate_count,
+        incomplete_dedup_key_rows=incomplete_count,
+        total_input_rows=total_input_rows,
+        total_rejected_rows=invalid_count + duplicate_count,
         status=status,
     )

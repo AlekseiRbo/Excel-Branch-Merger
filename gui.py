@@ -888,10 +888,10 @@ class ExcelBranchMergerApp(tk.Tk):
         self._update_progress(100)
 
         values = {
-            "files": result.files_processed,
+            "files": result.files_succeeded,
             "valid": result.valid_rows,
-            "errors": result.error_rows,
-            "duplicates": result.duplicates_removed,
+            "errors": result.invalid_rows,
+            "duplicates": result.duplicate_rows,
         }
         for key, value in values.items():
             self.canvas.itemconfigure(self._metric_items[key], text=str(value))
