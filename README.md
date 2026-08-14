@@ -1,5 +1,7 @@
 # Excel Branch Merger
 
+[![tests](https://github.com/AlekseiRbo/Excel-Branch-Merger/actions/workflows/tests.yml/badge.svg)](https://github.com/AlekseiRbo/Excel-Branch-Merger/actions/workflows/tests.yml)
+
 A desktop Python application for consolidating, validating, and deduplicating Excel reports from multiple branches.
 
 ![Excel Branch Merger](screenshots/application.png)
