@@ -47,8 +47,8 @@ excel_branch_merger/
 ├── main.py                    # Console entry point
 ├── make_screenshot.py         # Portfolio screenshot generator
 ├── MAKE_SCREENSHOT.bat        # Windows screenshot launcher
-├── requirements.txt
-└── pytest.ini
+├── pyproject.toml
+└── requirements.txt
 ```
 
 ## Installation
