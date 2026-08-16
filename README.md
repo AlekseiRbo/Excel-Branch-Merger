@@ -48,7 +48,7 @@ excel_branch_merger/
 ├── make_screenshot.py         # Portfolio screenshot generator
 ├── MAKE_SCREENSHOT.bat        # Windows screenshot launcher
 ├── pyproject.toml
-└── requirements.txt
+└── uv.lock
 ```
 
 ## Installation
@@ -65,10 +65,10 @@ Activate it on Windows:
 .\.venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+Install dependencies with uv:
 
 ```powershell
-python -m pip install -r requirements.txt
+uv sync --locked
 ```
 
 ## Running the application
