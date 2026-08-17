@@ -70,8 +70,9 @@ def test_validate_dataframe_rejects_non_positive_amounts(
     )
 
     assert result.valid_rows.empty
-    assert "Amount must be greater than zero" in (
-        result.error_rows.iloc[0]["validation_errors"]
+    assert (
+        "Amount must be greater than zero"
+        in (result.error_rows.iloc[0]["validation_errors"])
     )
 
 
@@ -93,6 +94,5 @@ def test_invalid_amount_is_rejected_without_rewriting_original_value() -> None:
     assert result.valid_rows.empty
     assert len(result.error_rows) == 1
     assert result.error_rows.iloc[0]["validation_errors"] == (
-        "Invalid amount: '12abc34'; expected a number such as "
-        "1234.56 or 1,234.56"
+        "Invalid amount: '12abc34'; expected a number such as 1234.56 or 1,234.56"
     )

@@ -1,5 +1,5 @@
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 
 def load_pyproject() -> dict:
@@ -42,6 +42,7 @@ def test_pytest_configuration_moved_to_pyproject() -> None:
     assert pytest_config["addopts"] == "-ra"
 
     assert not Path("pytest.ini").exists()
+
 
 def test_readme_reflects_pyproject_migration() -> None:
     text = Path("README.md").read_text(encoding="utf-8")

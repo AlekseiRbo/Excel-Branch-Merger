@@ -162,6 +162,17 @@ Start the interface with automatic restart after source or asset changes:
 python dev_runner.py
 ```
 
+
+## Code quality
+
+Run Ruff lint checks:
+
+`uv run --locked ruff check gui.py main.py dev_runner.py src tests`
+
+Check formatting:
+
+`uv run --locked ruff format --check gui.py main.py dev_runner.py src tests`
+
 ## License
 
 MIT License. See `LICENSE`.

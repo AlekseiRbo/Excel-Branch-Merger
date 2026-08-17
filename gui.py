@@ -7,16 +7,19 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFilter, ImageTk
 
 from src.excel_branch_merger.config import load_config
-from src.excel_branch_merger.merger import ProcessingResult, ProcessingStatus, process_folder
+from src.excel_branch_merger.merger import (
+    ProcessingResult,
+    ProcessingStatus,
+    process_folder,
+)
 from src.excel_branch_merger.version import APP_NAME, __version__
-
 
 # Keep the canvas and PNG assets sharp on Windows with display scaling enabled.
 if sys.platform == "win32":
@@ -32,7 +35,7 @@ class CanvasButton:
     def __init__(
         self,
         canvas: tk.Canvas,
-        owner: "ExcelBranchMergerApp",
+        owner: ExcelBranchMergerApp,
         name: str,
         box: tuple[int, int, int, int],
         text: str,
@@ -597,11 +600,21 @@ class ExcelBranchMergerApp(tk.Tk):
             self.canvas.delete(self.status_version_item)
 
         if state == "error":
-            fill, border, color, icon = "#FFF4F2", "#F4C7C2", "#B42318", self.asset_error
+            fill, border, color, icon = (
+                "#FFF4F2",
+                "#F4C7C2",
+                "#B42318",
+                self.asset_error,
+            )
         elif state == "processing":
             fill, border, color, icon = "#F2F6FF", "#CCDDFB", self.BLUE, self.asset_play
         else:
-            fill, border, color, icon = "#F1FAF3", "#CDE9D2", self.GREEN, self.asset_status
+            fill, border, color, icon = (
+                "#F1FAF3",
+                "#CDE9D2",
+                self.GREEN,
+                self.asset_status,
+            )
 
         bg = self._rounded_rect_image(928, 44, fill, border, 9)
         bg_photo = ImageTk.PhotoImage(bg)
@@ -611,7 +624,9 @@ class ExcelBranchMergerApp(tk.Tk):
         icon_img = icon.copy().resize((22, 22), Image.Resampling.LANCZOS)
         icon_photo = ImageTk.PhotoImage(icon_img)
         self._image_refs["status-icon-dynamic"] = icon_photo
-        self.status_icon_item = self.canvas.create_image(27, 591, anchor="nw", image=icon_photo)
+        self.status_icon_item = self.canvas.create_image(
+            27, 591, anchor="nw", image=icon_photo
+        )
         self.status_text_item = self.canvas.create_text(
             59,
             602,
@@ -825,7 +840,9 @@ class ExcelBranchMergerApp(tk.Tk):
             return
 
         if input_dir.resolve() == output_dir.resolve():
-            messagebox.showerror(APP_NAME, "Input and output folders must be different.")
+            messagebox.showerror(
+                APP_NAME, "Input and output folders must be different."
+            )
             return
 
         self._last_result = None
@@ -896,7 +913,10 @@ class ExcelBranchMergerApp(tk.Tk):
         for key, value in values.items():
             self.canvas.itemconfigure(self._metric_items[key], text=str(value))
         if result.status is ProcessingStatus.FAILED:
-            self._draw_status("Processing failed. No usable input files were processed.", state="error")
+            self._draw_status(
+                "Processing failed. No usable input files were processed.",
+                state="error",
+            )
         elif result.status is ProcessingStatus.COMPLETED_WITH_WARNINGS:
             self._draw_status("Processing completed with warnings.", state="processing")
         else:

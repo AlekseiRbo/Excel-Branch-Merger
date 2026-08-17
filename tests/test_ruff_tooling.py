@@ -1,14 +1,11 @@
-from pathlib import Path
 import tomllib
-
+from pathlib import Path
 
 TARGETS = "gui.py main.py dev_runner.py src tests"
 
 
 def load_pyproject() -> dict:
-    return tomllib.loads(
-        Path("pyproject.toml").read_text(encoding="utf-8")
-    )
+    return tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
 
 def test_ruff_is_pinned_as_development_dependency() -> None:
@@ -34,18 +31,10 @@ def test_ruff_has_explicit_stable_configuration() -> None:
 
 
 def test_ci_enforces_ruff_lint_and_formatting() -> None:
-    text = Path(
-        ".github/workflows/tests.yml"
-    ).read_text(encoding="utf-8")
+    text = Path(".github/workflows/tests.yml").read_text(encoding="utf-8")
 
-    assert (
-        f"uv run --locked ruff check {TARGETS}"
-        in text
-    )
-    assert (
-        f"uv run --locked ruff format --check {TARGETS}"
-        in text
-    )
+    assert f"uv run --locked ruff check {TARGETS}" in text
+    assert f"uv run --locked ruff format --check {TARGETS}" in text
 
 
 def test_readme_documents_ruff_commands() -> None:

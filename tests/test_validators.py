@@ -49,14 +49,14 @@ def test_validate_dataframe_separates_invalid_rows() -> None:
 
     assert len(result.valid_rows) == 1
     assert len(result.error_rows) == 1
-    assert "Missing required field: customer_name" in (
-        result.error_rows.iloc[0]["validation_errors"]
+    assert (
+        "Missing required field: customer_name"
+        in (result.error_rows.iloc[0]["validation_errors"])
     )
-    assert "Invalid sale_date" in (
-        result.error_rows.iloc[0]["validation_errors"]
-    )
-    assert "Amount must be greater than zero" in (
-        result.error_rows.iloc[0]["validation_errors"]
+    assert "Invalid sale_date" in (result.error_rows.iloc[0]["validation_errors"])
+    assert (
+        "Amount must be greater than zero"
+        in (result.error_rows.iloc[0]["validation_errors"])
     )
 
 

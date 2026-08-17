@@ -5,7 +5,6 @@ import sys
 import time
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent
 CHECK_INTERVAL_SECONDS = 0.5
 WATCHED_EXTENSIONS = {".py", ".png", ".jpg", ".jpeg", ".json"}
