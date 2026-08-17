@@ -29,6 +29,12 @@ jobs:
       - name: Sync dependencies
         run: uv sync --locked
 
+      - name: Ruff lint
+        run: uv run --locked ruff check gui.py main.py dev_runner.py src tests
+
+      - name: Ruff format check
+        run: uv run --locked ruff format --check gui.py main.py dev_runner.py src tests
+
       - name: Run tests
         run: uv run --locked python -m pytest -q
 

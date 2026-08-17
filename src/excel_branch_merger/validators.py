@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from numbers import Number
-from typing import Iterable
 
 import pandas as pd
 
@@ -176,9 +176,8 @@ def validate_dataframe(
     for field in required_fields:
         original_field = df[field]
         missing = original_field.isna()
-        if (
-            original_field.dtype == "object"
-            or str(original_field.dtype).startswith("string")
+        if original_field.dtype == "object" or str(original_field.dtype).startswith(
+            "string"
         ):
             missing = missing | original_field.astype("string").str.strip().eq("")
         required_missing_masks[field] = missing
@@ -239,9 +238,7 @@ def validate_dataframe(
                 f"Invalid amount: {original_value!r}; expected a number such as "
                 "1234.56 or 1,234.56; "
             )
-        error_messages.loc[non_positive_amounts] += (
-            "Amount must be greater than zero; "
-        )
+        error_messages.loc[non_positive_amounts] += "Amount must be greater than zero; "
 
     df["validation_errors"] = error_messages.str.rstrip("; ")
 

@@ -6,7 +6,6 @@ import pytest
 
 from src.excel_branch_merger.merger import ProcessingStatus, process_folder
 
-
 CONFIG = {
     "canonical_columns": {
         "branch": ["Branch", "Office"],
@@ -22,13 +21,15 @@ CONFIG = {
 
 
 def _valid_frame(customer: str = "Alice", invoice: str = "A-1") -> pd.DataFrame:
-    return pd.DataFrame({
-        "Customer": [customer],
-        "Date": ["2026-08-01"],
-        "Amount": [100],
-        "Invoice": [invoice],
-        "Branch": ["North"],
-    })
+    return pd.DataFrame(
+        {
+            "Customer": [customer],
+            "Date": ["2026-08-01"],
+            "Amount": [100],
+            "Invoice": [invoice],
+            "Branch": ["North"],
+        }
+    )
 
 
 def _openable(path: Path) -> None:
@@ -37,19 +38,28 @@ def _openable(path: Path) -> None:
 
 
 def test_end_to_end_multi_file_multi_sheet_outputs(tmp_path: Path) -> None:
-    inp = tmp_path / "input"; inp.mkdir(); out = tmp_path / "output"
+    inp = tmp_path / "input"
+    inp.mkdir()
+    out = tmp_path / "output"
     with pd.ExcelWriter(inp / "a.xlsx", engine="openpyxl") as writer:
-        pd.DataFrame({
-            "Customer": ["Alice", "Bad"],
-            "Date": ["2026-08-01", "08/04/2026"],
-            "Amount": [100, 200],
-            "Invoice": ["A-1", "X-1"],
-            "Branch": ["N", "N"],
-        }).to_excel(writer, sheet_name="One", index=False)
-        pd.DataFrame({
-            "Client": ["Bob"], "Sale Date": ["2026-08-02"],
-            "Total": [300], "Invoice Number": ["B-1"], "Office": ["S"],
-        }).to_excel(writer, sheet_name="Two", index=False)
+        pd.DataFrame(
+            {
+                "Customer": ["Alice", "Bad"],
+                "Date": ["2026-08-01", "08/04/2026"],
+                "Amount": [100, 200],
+                "Invoice": ["A-1", "X-1"],
+                "Branch": ["N", "N"],
+            }
+        ).to_excel(writer, sheet_name="One", index=False)
+        pd.DataFrame(
+            {
+                "Client": ["Bob"],
+                "Sale Date": ["2026-08-02"],
+                "Total": [300],
+                "Invoice Number": ["B-1"],
+                "Office": ["S"],
+            }
+        ).to_excel(writer, sheet_name="Two", index=False)
     _valid_frame().to_excel(inp / "b.xlsx", index=False)
 
     result = process_folder(inp, out, CONFIG)
@@ -72,23 +82,31 @@ def test_end_to_end_multi_file_multi_sheet_outputs(tmp_path: Path) -> None:
     values = dict(zip(summary["Metric"], summary["Value"]))
     assert values["Total input rows"] == 4
     assert values["Total rejected rows"] == 2
-    assert "SUMMARY Total rejected rows: 2" in result.log_path.read_text(encoding="utf-8")
-    _openable(result.report_path); _openable(result.error_path)
+    assert "SUMMARY Total rejected rows: 2" in result.log_path.read_text(
+        encoding="utf-8"
+    )
+    _openable(result.report_path)
+    _openable(result.error_path)
 
 
 def test_corrupted_only_is_failed_but_reports_are_created(tmp_path: Path) -> None:
-    inp = tmp_path / "input"; inp.mkdir(); out = tmp_path / "output"
+    inp = tmp_path / "input"
+    inp.mkdir()
+    out = tmp_path / "output"
     (inp / "broken.xlsx").write_bytes(b"not-an-xlsx")
     result = process_folder(inp, out, CONFIG)
     assert result.status is ProcessingStatus.FAILED
     assert result.files_failed == 1 and result.files_succeeded == 0
     errors = pd.read_excel(result.error_path, sheet_name="Errors")
     assert errors["source_file"].tolist() == ["broken.xlsx"]
-    _openable(result.report_path); _openable(result.error_path)
+    _openable(result.report_path)
+    _openable(result.error_path)
 
 
 def test_mixed_good_and_corrupted_is_warning(tmp_path: Path) -> None:
-    inp = tmp_path / "input"; inp.mkdir(); out = tmp_path / "output"
+    inp = tmp_path / "input"
+    inp.mkdir()
+    out = tmp_path / "output"
     _valid_frame().to_excel(inp / "good.xlsx", index=False)
     (inp / "broken.xlsx").write_bytes(b"broken")
     result = process_folder(inp, out, CONFIG)
@@ -99,7 +117,9 @@ def test_mixed_good_and_corrupted_is_warning(tmp_path: Path) -> None:
 
 
 def test_bad_sheet_does_not_remove_good_sheet(tmp_path: Path) -> None:
-    inp = tmp_path / "input"; inp.mkdir(); out = tmp_path / "output"
+    inp = tmp_path / "input"
+    inp.mkdir()
+    out = tmp_path / "output"
     with pd.ExcelWriter(inp / "mixed.xlsx", engine="openpyxl") as writer:
         _valid_frame().to_excel(writer, sheet_name="Good", index=False)
         pd.DataFrame({"Unknown": ["x"]}).to_excel(writer, sheet_name="Bad", index=False)
@@ -111,27 +131,38 @@ def test_bad_sheet_does_not_remove_good_sheet(tmp_path: Path) -> None:
 
 
 def test_all_invalid_rows_still_generate_complete_output_set(tmp_path: Path) -> None:
-    inp = tmp_path / "input"; inp.mkdir(); out = tmp_path / "output"
-    pd.DataFrame({
-        "Customer": ["Bad"], "Date": ["not-a-date"],
-        "Amount": ["12abc34"], "Invoice": ["X-1"],
-    }).to_excel(inp / "invalid.xlsx", index=False)
+    inp = tmp_path / "input"
+    inp.mkdir()
+    out = tmp_path / "output"
+    pd.DataFrame(
+        {
+            "Customer": ["Bad"],
+            "Date": ["not-a-date"],
+            "Amount": ["12abc34"],
+            "Invoice": ["X-1"],
+        }
+    ).to_excel(inp / "invalid.xlsx", index=False)
     result = process_folder(inp, out, CONFIG)
     assert result.valid_rows == 0
     assert result.invalid_rows == 1
     assert pd.read_excel(result.report_path, sheet_name="Consolidated").empty
     assert len(pd.read_excel(result.error_path, sheet_name="Errors")) == 1
-    _openable(result.report_path); _openable(result.error_path)
+    _openable(result.report_path)
+    _openable(result.error_path)
 
 
 def test_incomplete_duplicate_keys_are_kept_and_reported(tmp_path: Path) -> None:
-    inp = tmp_path / "input"; inp.mkdir(); out = tmp_path / "output"
-    pd.DataFrame({
-        "Customer": ["Alice", "Alice"],
-        "Date": ["2026-08-01", "2026-08-01"],
-        "Amount": [100, 100],
-        "Invoice": [None, None],
-    }).to_excel(inp / "sales.xlsx", index=False)
+    inp = tmp_path / "input"
+    inp.mkdir()
+    out = tmp_path / "output"
+    pd.DataFrame(
+        {
+            "Customer": ["Alice", "Alice"],
+            "Date": ["2026-08-01", "2026-08-01"],
+            "Amount": [100, 100],
+            "Invoice": [None, None],
+        }
+    ).to_excel(inp / "sales.xlsx", index=False)
     result = process_folder(inp, out, CONFIG)
     assert result.valid_rows == 2
     assert result.duplicate_rows == 0
