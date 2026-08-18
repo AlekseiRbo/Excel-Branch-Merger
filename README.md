@@ -173,6 +173,20 @@ Check formatting:
 
 `uv run --locked ruff format --check gui.py main.py dev_runner.py src tests`
 
+## Type checking
+
+Create or update the dedicated Python 3.11 type-check environment:
+
+`$env:UV_PROJECT_ENVIRONMENT = ".venv-mypy311"; uv sync --locked --python 3.11`
+
+Run mypy:
+
+`.\.venv-mypy311\Scripts\python.exe -m mypy`
+
+Afterwards, clear the temporary project-environment override:
+
+`Remove-Item Env:UV_PROJECT_ENVIRONMENT -ErrorAction SilentlyContinue`
+
 ## License
 
 MIT License. See `LICENSE`.

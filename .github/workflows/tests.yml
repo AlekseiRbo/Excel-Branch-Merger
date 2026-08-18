@@ -35,6 +35,14 @@ jobs:
       - name: Ruff format check
         run: uv run --locked ruff format --check gui.py main.py dev_runner.py src tests
 
+      - name: Type check on Python 3.11
+        env:
+          UV_PROJECT_ENVIRONMENT: .venv-mypy311
+          UV_LINK_MODE: copy
+        run: |
+          uv sync --locked --python 3.11
+          .\.venv-mypy311\Scripts\python.exe -m mypy
+
       - name: Run tests
         run: uv run --locked python -m pytest -q
 
