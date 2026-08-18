@@ -10,6 +10,7 @@ import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox
+from typing import cast
 
 from PIL import Image, ImageDraw, ImageFilter, ImageTk
 
@@ -188,6 +189,11 @@ class ExcelBranchMergerApp(tk.Tk):
         self._buttons: dict[str, CanvasButton] = {}
         self._metric_items: dict[str, int] = {}
 
+        self.status_bg: int | None = None
+        self.status_icon_item: int | None = None
+        self.status_text_item: int | None = None
+        self.status_version_item: int | None = None
+
         self.title(APP_NAME)
         self.resizable(False, False)
         self.configure(bg=self.BG)
@@ -233,7 +239,7 @@ class ExcelBranchMergerApp(tk.Tk):
         icon = self.asset_logo.copy().resize((28, 29), Image.Resampling.LANCZOS)
         photo = ImageTk.PhotoImage(icon)
         self._image_refs["window-icon"] = photo
-        self.iconphoto(True, photo)
+        self.iconphoto(True, cast(tk.PhotoImage, photo))
 
     def _build_canvas(self) -> None:
         self.canvas = tk.Canvas(
@@ -593,10 +599,13 @@ class ExcelBranchMergerApp(tk.Tk):
         )
 
     def _draw_status(self, text: str, state: str) -> None:
-        if hasattr(self, "status_bg"):
+        if self.status_bg is not None:
             self.canvas.delete(self.status_bg)
+        if self.status_icon_item is not None:
             self.canvas.delete(self.status_icon_item)
+        if self.status_text_item is not None:
             self.canvas.delete(self.status_text_item)
+        if self.status_version_item is not None:
             self.canvas.delete(self.status_version_item)
 
         if state == "error":
@@ -880,7 +889,10 @@ class ExcelBranchMergerApp(tk.Tk):
             while True:
                 status, payload = self._result_queue.get_nowait()
                 if status == "progress":
-                    current, total, filename = payload  # type: ignore[misc]
+                    current, total, filename = cast(
+                        tuple[int, int, str],
+                        payload,
+                    )
                     percent = int(current * 100 / total) if total else 0
                     self._update_progress(percent)
                     self._draw_status(

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from openpyxl.utils import get_column_letter
@@ -255,6 +255,7 @@ def process_folder(
         try:
             excel_file = pd.ExcelFile(workbook_path)
             for sheet_name in excel_file.sheet_names:
+                sheet_name = cast(str, sheet_name)
                 frame = pd.read_excel(excel_file, sheet_name=sheet_name)
                 if frame.empty and len(frame.columns) == 0:
                     files_skipped += 0

@@ -6,9 +6,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from numbers import Number
+from numbers import Real
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from pandas._libs.tslibs.nattype import NaTType
 
 
 @dataclass(frozen=True)
@@ -91,7 +95,7 @@ def parse_amount(value: object) -> float | None:
             return None
         return numeric_value if math.isfinite(numeric_value) else None
 
-    if isinstance(value, Number):
+    if isinstance(value, Real):
         try:
             numeric_value = float(value)
         except (TypeError, ValueError, OverflowError):
@@ -123,7 +127,7 @@ def parse_amount(value: object) -> float | None:
 def parse_date_value(
     value: object,
     date_formats: list[str],
-) -> tuple[pd.Timestamp | pd.NaT, bool]:
+) -> tuple[pd.Timestamp | NaTType, bool]:
     """Parse one date value and report whether it is ambiguous.
 
     A text value is ambiguous when two configured formats parse it into
@@ -134,10 +138,10 @@ def parse_date_value(
         return pd.NaT, False
 
     if isinstance(value, (pd.Timestamp, datetime, date)):
-        parsed = pd.Timestamp(value)
-        if pd.isna(parsed):
+        parsed_timestamp = pd.Timestamp(value)
+        if pd.isna(parsed_timestamp):
             return pd.NaT, False
-        return parsed.normalize(), False
+        return parsed_timestamp.normalize(), False
 
     text = str(value).strip()
     if not text:
@@ -187,7 +191,7 @@ def validate_dataframe(
 
     if "sale_date" in df.columns:
         original_dates = df["sale_date"].copy()
-        parsed_values: list[pd.Timestamp | pd.NaT] = []
+        parsed_values: list[pd.Timestamp | NaTType] = []
         ambiguous_values: list[bool] = []
 
         for value in original_dates:
