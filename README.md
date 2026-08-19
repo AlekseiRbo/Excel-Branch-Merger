@@ -197,6 +197,14 @@ Run all configured hooks manually:
 
 `uv run --locked pre-commit run --all-files`
 
+## Test coverage
+
+Run the core-package coverage gate:
+
+`uv run --locked python -m pytest -q --cov=src/excel_branch_merger`
+
+The project enforces branch coverage with a minimum total coverage of 80%.
+
 ## License
 
 MIT License. See `LICENSE`.
