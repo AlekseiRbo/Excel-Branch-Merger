@@ -187,6 +187,16 @@ Afterwards, clear the temporary project-environment override:
 
 `Remove-Item Env:UV_PROJECT_ENVIRONMENT -ErrorAction SilentlyContinue`
 
+## Pre-commit hooks
+
+Install the repository hooks:
+
+`uv run --locked pre-commit install`
+
+Run all configured hooks manually:
+
+`uv run --locked pre-commit run --all-files`
+
 ## License
 
 MIT License. See `LICENSE`.

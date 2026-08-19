@@ -1,0 +1,32 @@
+minimum_pre_commit_version: "4.6.0"
+
+repos:
+  - repo: local
+    hooks:
+      - id: uv-lock
+        name: uv lock check
+        entry: uv lock --check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: ruff-check
+        name: Ruff lint
+        entry: uv run --locked ruff check gui.py main.py dev_runner.py src tests
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: ruff-format
+        name: Ruff format check
+        entry: uv run --locked ruff format --check gui.py main.py dev_runner.py src tests
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: mypy
+        name: mypy Python 3.11
+        entry: uv run --isolated --locked --python 3.11 mypy
+        language: system
+        pass_filenames: false
+        always_run: true
