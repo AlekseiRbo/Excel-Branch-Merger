@@ -43,8 +43,8 @@ jobs:
           uv sync --locked --python 3.11
           .\.venv-mypy311\Scripts\python.exe -m mypy
 
-      - name: Run tests
-        run: uv run --locked python -m pytest -q
+      - name: Run tests with coverage
+        run: uv run --locked python -m pytest -q --cov=src/excel_branch_merger
 
       - name: Compile check
         run: uv run --locked python -m compileall -q src gui.py main.py
