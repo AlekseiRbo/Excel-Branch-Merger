@@ -1,0 +1,54 @@
+input:
+  csv:
+    encoding: utf-8-sig
+    delimiter: ","
+  unmapped_columns: preserve
+
+fields:
+  customer_name:
+    aliases:
+      - Customer
+      - Customer Name
+    required: true
+    type: text
+    case: preserve
+
+  email:
+    aliases:
+      - Email
+      - E-mail
+    required: false
+    type: email
+    case: lower
+
+  amount:
+    aliases:
+      - Amount
+      - Total
+    required: true
+    type: number
+
+  invoice_date:
+    aliases:
+      - Date
+      - Invoice Date
+    required: true
+    type: date
+    formats:
+      - "%Y-%m-%d"
+      - "%d/%m/%Y"
+
+deduplication:
+  keys:
+    - email
+    - invoice_date
+  keep: first
+
+missing_values:
+  - ""
+  - N/A
+  - NA
+  - "null"
+
+output:
+  include_source_lineage: true
