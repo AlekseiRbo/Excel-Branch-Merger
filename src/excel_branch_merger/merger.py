@@ -12,6 +12,7 @@ from typing import Any, cast
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
+from .cleaning import clean_dataframe
 from .validators import normalize_columns, validate_dataframe
 
 REPORT_NAME = "consolidated_report.xlsx"
@@ -88,6 +89,8 @@ def _prepare_sheet(
     required_fields: list[str],
     date_formats: list[str],
     unmapped_columns: str = "preserve",
+    fields: dict[str, dict[str, Any]] | None = None,
+    missing_values: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     if dataframe.empty and len(dataframe.columns) == 0:
         return dataframe.copy(), dataframe.copy(), True
@@ -109,6 +112,13 @@ def _prepare_sheet(
             _empty_like(normalized),
             _source_error_rows(normalized, filename, sheet_name, message),
             False,
+        )
+
+    if fields:
+        normalized = clean_dataframe(
+            normalized,
+            fields=fields,
+            missing_values=missing_values or [],
         )
 
     normalized = normalized.copy()
@@ -244,8 +254,14 @@ def process_folder(
     )
 
     fields_config = _cfg(config, "fields", default={})
+    cleaning_fields: dict[str, dict[str, Any]] = {}
 
     if isinstance(fields_config, dict) and fields_config:
+        cleaning_fields = {
+            field_name: dict(field_spec)
+            for field_name, field_spec in fields_config.items()
+            if isinstance(field_name, str) and isinstance(field_spec, dict)
+        }
         canonical_columns = {
             field_name: list(field_spec.get("aliases", []))
             for field_name, field_spec in fields_config.items()
@@ -260,7 +276,8 @@ def process_folder(
 
         sale_date_spec = fields_config.get("sale_date", {})
         if isinstance(sale_date_spec, dict):
-            date_formats = list(sale_date_spec.get("formats", ["%Y-%m-%d"]))
+            configured_date_formats = list(sale_date_spec.get("formats", ["%Y-%m-%d"]))
+            date_formats = list(dict.fromkeys(["%Y-%m-%d", *configured_date_formats]))
         else:
             date_formats = ["%Y-%m-%d"]
 
@@ -296,6 +313,15 @@ def process_folder(
     csv_encoding = str(csv_config.get("encoding", "utf-8-sig"))
     csv_delimiter = str(csv_config.get("delimiter", ","))
     unmapped_columns = str(input_config.get("unmapped_columns", "preserve"))
+
+    raw_missing_values = _cfg(
+        config,
+        "missing_values",
+        default=[],
+    )
+    missing_values = (
+        list(raw_missing_values) if isinstance(raw_missing_values, list) else []
+    )
 
     valid_parts: list[pd.DataFrame] = []
     error_parts: list[pd.DataFrame] = []
@@ -354,6 +380,8 @@ def process_folder(
                     required_fields=required_fields,
                     date_formats=date_formats,
                     unmapped_columns=unmapped_columns,
+                    fields=cleaning_fields,
+                    missing_values=missing_values,
                 )
             except Exception as exc:
                 error_rows = _source_error_rows(
@@ -411,6 +439,8 @@ def process_folder(
                         required_fields=required_fields,
                         date_formats=date_formats,
                         unmapped_columns=unmapped_columns,
+                        fields=cleaning_fields,
+                        missing_values=missing_values,
                     )
                 except Exception as exc:
                     error_rows = _source_error_rows(
