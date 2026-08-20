@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from numbers import Real
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -164,7 +164,7 @@ def parse_date_value(
     return pd.NaT, False
 
 
-def validate_dataframe(
+def _validate_legacy_dataframe(
     dataframe: pd.DataFrame,
     required_fields: Iterable[str],
     date_formats: list[str],
@@ -250,4 +250,111 @@ def validate_dataframe(
     return ValidationResult(
         valid_rows=df.loc[~error_mask].copy(),
         error_rows=df.loc[error_mask].copy(),
+    )
+
+
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _is_missing_scalar(value: object) -> bool:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return True
+
+    if isinstance(value, Real):
+        try:
+            return math.isnan(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    return isinstance(value, str) and not value.strip()
+
+
+def _validate_configured_dataframe(
+    dataframe: pd.DataFrame,
+    fields: dict[str, dict[str, Any]],
+) -> ValidationResult:
+    df = dataframe.copy()
+    messages = [""] * len(df)
+
+    for field_name, field_spec in fields.items():
+        if field_name not in df.columns:
+            df[field_name] = pd.NA
+
+        field_type = field_spec.get("type", "text")
+        required = bool(field_spec.get("required", False))
+
+        raw_formats = field_spec.get("formats", [])
+        configured_formats = (
+            [item for item in raw_formats if isinstance(item, str)]
+            if isinstance(raw_formats, list)
+            else []
+        )
+        date_formats = list(dict.fromkeys(["%Y-%m-%d", *configured_formats]))
+
+        values = df[field_name].tolist()
+
+        for position, value in enumerate(values):
+            is_missing = _is_missing_scalar(value)
+
+            if required and is_missing:
+                messages[position] += f"Missing required field: {field_name}; "
+                continue
+
+            if is_missing:
+                continue
+
+            if field_type == "email":
+                text_value = str(value).strip()
+                if _EMAIL_PATTERN.fullmatch(text_value) is None:
+                    messages[position] += f"Invalid {field_name}; "
+
+            elif field_type == "number":
+                if parse_amount(value) is None:
+                    messages[position] += f"Invalid {field_name}; "
+
+            elif field_type == "date":
+                parsed, is_ambiguous = parse_date_value(
+                    value,
+                    date_formats,
+                )
+
+                if is_ambiguous:
+                    original_value = str(value).strip()
+                    messages[position] += f"Ambiguous {field_name}: {original_value}; "
+                elif pd.isna(parsed):
+                    messages[position] += f"Invalid {field_name}; "
+
+    error_messages = pd.Series(
+        messages,
+        index=df.index,
+        dtype="string",
+    ).str.rstrip("; ")
+
+    df["validation_errors"] = error_messages
+
+    error_mask = df["validation_errors"].ne("")
+
+    return ValidationResult(
+        valid_rows=df.loc[~error_mask].copy(),
+        error_rows=df.loc[error_mask].copy(),
+    )
+
+
+def validate_dataframe(
+    dataframe: pd.DataFrame,
+    required_fields: Iterable[str],
+    date_formats: list[str],
+    *,
+    fields: dict[str, dict[str, Any]] | None = None,
+) -> ValidationResult:
+    if fields:
+        return _validate_configured_dataframe(
+            dataframe,
+            fields,
+        )
+
+    return _validate_legacy_dataframe(
+        dataframe,
+        required_fields,
+        date_formats,
     )

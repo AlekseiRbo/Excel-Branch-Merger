@@ -127,7 +127,12 @@ def _prepare_sheet(
     normalized["source_row"] = normalized.index.to_series().map(
         lambda value: int(value) + 2
     )
-    validation = validate_dataframe(normalized, required_fields, date_formats)
+    validation = validate_dataframe(
+        normalized,
+        required_fields,
+        date_formats,
+        fields=fields,
+    )
     return validation.valid_rows, validation.error_rows, True
 
 
