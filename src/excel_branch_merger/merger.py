@@ -224,10 +224,13 @@ def process_folder(
         raise ValueError("Input and output folders must be different.")
     output_dir.mkdir(parents=True, exist_ok=True)
     excluded_names = {REPORT_NAME, ERROR_NAME}
+    supported_suffixes = {".xlsx", ".csv"}
     input_files = sorted(
         path
-        for path in input_dir.glob("*.xlsx")
-        if not path.name.startswith("~$")
+        for path in input_dir.iterdir()
+        if path.is_file()
+        and path.suffix.casefold() in supported_suffixes
+        and not path.name.startswith("~$")
         and path.name not in excluded_names
         and not path.name.startswith(".")
     )
@@ -236,6 +239,15 @@ def process_folder(
     required_fields = list(_cfg(config, "required_fields", default=[]))
     date_formats = list(_cfg(config, "date_formats", default=["%Y-%m-%d"]))
     duplicate_key = list(_cfg(config, "duplicate_key", "duplicate_keys", default=[]))
+
+    input_config = _cfg(config, "input", default={})
+    if not isinstance(input_config, dict):
+        input_config = {}
+    csv_config = input_config.get("csv", {})
+    if not isinstance(csv_config, dict):
+        csv_config = {}
+    csv_encoding = str(csv_config.get("encoding", "utf-8-sig"))
+    csv_delimiter = str(csv_config.get("delimiter", ","))
 
     valid_parts: list[pd.DataFrame] = []
     error_parts: list[pd.DataFrame] = []
@@ -247,28 +259,104 @@ def process_folder(
     total_input_rows = 0
     log_lines: list[str] = []
 
-    for current, workbook_path in enumerate(input_files, start=1):
+    for current, input_path in enumerate(input_files, start=1):
         if progress_callback:
-            progress_callback(current, len(input_files), workbook_path.name)
+            progress_callback(current, len(input_files), input_path.name)
+
+        if input_path.suffix.casefold() == ".csv":
+            identity = f"{input_path.name}::CSV"
+
+            try:
+                frame = pd.read_csv(
+                    input_path,
+                    encoding=csv_encoding,
+                    sep=csv_delimiter,
+                )
+            except Exception as exc:
+                files_failed += 1
+                worksheet_failures.append(identity)
+                error_parts.append(
+                    pd.DataFrame(
+                        [
+                            {
+                                "source_file": input_path.name,
+                                "source_sheet": "CSV",
+                                "source_row": pd.NA,
+                                "validation_errors": f"Unable to read CSV: {exc}",
+                            }
+                        ]
+                    )
+                )
+                log_lines.append(f"FAIL {input_path.name}: {exc}")
+                continue
+
+            if frame.empty and len(frame.columns) == 0:
+                files_skipped += 1
+                log_lines.append(f"SKIP {identity}: empty CSV")
+                continue
+
+            total_input_rows += len(frame)
+
+            try:
+                valid_rows, error_rows, source_ok = _prepare_sheet(
+                    frame,
+                    filename=input_path.name,
+                    sheet_name="CSV",
+                    canonical_columns=canonical_columns,
+                    required_fields=required_fields,
+                    date_formats=date_formats,
+                )
+            except Exception as exc:
+                error_rows = _source_error_rows(
+                    frame,
+                    input_path.name,
+                    "CSV",
+                    f"CSV processing failed: {exc}",
+                )
+                valid_rows = _empty_like(frame)
+                source_ok = False
+
+            if not valid_rows.empty:
+                valid_parts.append(valid_rows)
+            if not error_rows.empty:
+                error_parts.append(error_rows)
+
+            if source_ok:
+                files_succeeded += 1
+                worksheet_successes.append(identity)
+                log_lines.append(
+                    f"OK {identity}: valid={len(valid_rows)} errors={len(error_rows)}"
+                )
+            else:
+                files_failed += 1
+                worksheet_failures.append(identity)
+                log_lines.append(f"FAIL {identity}: errors={len(error_rows)}")
+
+            continue
+
         workbook_had_success = False
         workbook_had_sheet = False
+
         try:
-            excel_file = pd.ExcelFile(workbook_path)
+            excel_file = pd.ExcelFile(input_path)
+
             for sheet_name in excel_file.sheet_names:
                 sheet_name = cast(str, sheet_name)
                 frame = pd.read_excel(excel_file, sheet_name=sheet_name)
+
                 if frame.empty and len(frame.columns) == 0:
-                    files_skipped += 0
                     log_lines.append(
-                        f"SKIP {workbook_path.name}::{sheet_name}: empty worksheet"
+                        f"SKIP {input_path.name}::{sheet_name}: empty worksheet"
                     )
                     continue
+
                 workbook_had_sheet = True
                 total_input_rows += len(frame)
+
                 try:
                     valid_rows, error_rows, sheet_ok = _prepare_sheet(
                         frame,
-                        filename=workbook_path.name,
+                        filename=input_path.name,
                         sheet_name=sheet_name,
                         canonical_columns=canonical_columns,
                         required_fields=required_fields,
@@ -277,49 +365,55 @@ def process_folder(
                 except Exception as exc:
                     error_rows = _source_error_rows(
                         frame,
-                        workbook_path.name,
+                        input_path.name,
                         sheet_name,
                         f"Worksheet processing failed: {exc}",
                     )
                     valid_rows = _empty_like(frame)
                     sheet_ok = False
+
                 if not valid_rows.empty:
                     valid_parts.append(valid_rows)
                 if not error_rows.empty:
                     error_parts.append(error_rows)
-                identity = f"{workbook_path.name}::{sheet_name}"
+
+                identity = f"{input_path.name}::{sheet_name}"
+
                 if sheet_ok:
                     worksheet_successes.append(identity)
                     workbook_had_success = True
                     log_lines.append(
-                        f"OK {identity}: valid={len(valid_rows)} errors={len(error_rows)}"
+                        f"OK {identity}: valid={len(valid_rows)} "
+                        f"errors={len(error_rows)}"
                     )
                 else:
                     worksheet_failures.append(identity)
                     log_lines.append(f"FAIL {identity}: errors={len(error_rows)}")
+
             if workbook_had_success:
                 files_succeeded += 1
             elif workbook_had_sheet:
                 files_failed += 1
             else:
                 files_skipped += 1
-                log_lines.append(f"SKIP {workbook_path.name}: no non-empty worksheets")
+                log_lines.append(f"SKIP {input_path.name}: no non-empty worksheets")
+
         except Exception as exc:
             files_failed += 1
-            worksheet_failures.append(f"{workbook_path.name}::<workbook>")
+            worksheet_failures.append(f"{input_path.name}::<workbook>")
             error_parts.append(
                 pd.DataFrame(
                     [
                         {
-                            "source_file": workbook_path.name,
+                            "source_file": input_path.name,
                             "source_sheet": pd.NA,
                             "source_row": pd.NA,
-                            "validation_errors": f"Unable to read workbook: {exc}",
+                            "validation_errors": (f"Unable to read workbook: {exc}"),
                         }
                     ]
                 )
             )
-            log_lines.append(f"FAIL {workbook_path.name}: {exc}")
+            log_lines.append(f"FAIL {input_path.name}: {exc}")
 
     if valid_parts:
         combined_valid = pd.concat(valid_parts, ignore_index=True, sort=False)
