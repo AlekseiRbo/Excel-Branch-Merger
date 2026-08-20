@@ -86,7 +86,7 @@ def test_configured_types_accept_valid_values(tmp_path: Path) -> None:
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert result.valid_rows == 1

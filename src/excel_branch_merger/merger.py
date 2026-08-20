@@ -19,6 +19,10 @@ REPORT_NAME = "consolidated_report.xlsx"
 ERROR_NAME = "error_report.xlsx"
 LOG_NAME = "processing_log.txt"
 
+V14_REPORT_NAME = "Consolidated.xlsx"
+V14_ERROR_NAME = "Errors.xlsx"
+V14_LOG_NAME = "processing.log"
+
 
 class ProcessingStatus(str, Enum):
     SUCCESS = "SUCCESS"
@@ -191,10 +195,13 @@ def _write_dataframe_sheet(
 
 
 def _write_report_workbook(
-    path: Path, consolidated: pd.DataFrame, summary: pd.DataFrame
+    path: Path,
+    consolidated: pd.DataFrame,
+    summary: pd.DataFrame,
+    data_sheet_name: str = "Consolidated",
 ) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        _write_dataframe_sheet(writer, consolidated, "Consolidated")
+        _write_dataframe_sheet(writer, consolidated, data_sheet_name)
         _write_dataframe_sheet(writer, summary, "Summary")
 
 
@@ -209,16 +216,26 @@ def _write_outputs(
     errors: pd.DataFrame,
     summary: pd.DataFrame,
     log_lines: list[str],
+    *,
+    report_name: str = REPORT_NAME,
+    error_name: str = ERROR_NAME,
+    log_name: str = LOG_NAME,
+    data_sheet_name: str = "Consolidated",
 ) -> tuple[Path, Path, Path]:
-    report_path = output_dir / REPORT_NAME
-    error_path = output_dir / ERROR_NAME
-    log_path = output_dir / LOG_NAME
+    report_path = output_dir / report_name
+    error_path = output_dir / error_name
+    log_path = output_dir / log_name
     temp_dir = Path(tempfile.mkdtemp(prefix=".excel-branch-merger-", dir=output_dir))
     try:
-        temp_report = temp_dir / REPORT_NAME
-        temp_error = temp_dir / ERROR_NAME
-        temp_log = temp_dir / LOG_NAME
-        _write_report_workbook(temp_report, consolidated, summary)
+        temp_report = temp_dir / report_name
+        temp_error = temp_dir / error_name
+        temp_log = temp_dir / log_name
+        _write_report_workbook(
+            temp_report,
+            consolidated,
+            summary,
+            data_sheet_name=data_sheet_name,
+        )
         _write_error_workbook(temp_error, errors)
         temp_log.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
         for path in (temp_report, temp_error, temp_log):
@@ -246,7 +263,12 @@ def process_folder(
     if input_dir == output_dir:
         raise ValueError("Input and output folders must be different.")
     output_dir.mkdir(parents=True, exist_ok=True)
-    excluded_names = {REPORT_NAME, ERROR_NAME}
+    excluded_names = {
+        REPORT_NAME,
+        ERROR_NAME,
+        V14_REPORT_NAME,
+        V14_ERROR_NAME,
+    }
     supported_suffixes = {".xlsx", ".csv"}
     input_files = sorted(
         path
@@ -562,8 +584,53 @@ def process_folder(
     log_lines.extend(
         f"SUMMARY {metric}: {value}" for metric, value in summary_values.items()
     )
+    is_v14_profile = isinstance(fields_config, dict) and bool(fields_config)
+
+    if is_v14_profile:
+        report_name = V14_REPORT_NAME
+        error_name = V14_ERROR_NAME
+        log_name = V14_LOG_NAME
+        data_sheet_name = "Data"
+    else:
+        report_name = REPORT_NAME
+        error_name = ERROR_NAME
+        log_name = LOG_NAME
+        data_sheet_name = "Consolidated"
+
+    output_config = _cfg(config, "output", default={})
+    if not isinstance(output_config, dict):
+        output_config = {}
+
+    include_source_lineage = bool(output_config.get("include_source_lineage", True))
+
+    output_consolidated = consolidated.copy()
+    output_errors = all_errors.copy()
+
+    if is_v14_profile and not include_source_lineage:
+        lineage_columns = [
+            "source_file",
+            "source_sheet",
+            "source_row",
+        ]
+        output_consolidated = output_consolidated.drop(
+            columns=[
+                name for name in lineage_columns if name in output_consolidated.columns
+            ]
+        )
+        output_errors = output_errors.drop(
+            columns=[name for name in lineage_columns if name in output_errors.columns]
+        )
+
     report_path, error_path, log_path = _write_outputs(
-        output_dir, consolidated, all_errors, summary, log_lines
+        output_dir,
+        output_consolidated,
+        output_errors,
+        summary,
+        log_lines,
+        report_name=report_name,
+        error_name=error_name,
+        log_name=log_name,
+        data_sheet_name=data_sheet_name,
     )
 
     return ProcessingResult(

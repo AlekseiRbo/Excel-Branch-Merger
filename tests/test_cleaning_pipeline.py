@@ -124,7 +124,7 @@ def test_cleaned_values_reach_consolidated_output(tmp_path: Path) -> None:
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert result.valid_rows == 1

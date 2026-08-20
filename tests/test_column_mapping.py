@@ -86,7 +86,7 @@ def test_new_fields_contract_maps_aliases_case_insensitively(
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert consolidated.loc[0, "customer_name"] == "Alpha"
@@ -123,7 +123,7 @@ def test_canonical_field_name_is_also_a_valid_input_header(
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert consolidated.loc[0, "customer_name"] == "Beta"
@@ -160,7 +160,7 @@ def test_unmapped_columns_are_preserved_when_configured(
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert consolidated.loc[0, "Notes"] == "keep me"
@@ -196,7 +196,7 @@ def test_unmapped_columns_are_dropped_when_configured(
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert "Notes" not in consolidated.columns

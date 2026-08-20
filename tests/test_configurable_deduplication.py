@@ -90,7 +90,7 @@ def test_configured_dedup_uses_cleaned_values(tmp_path: Path) -> None:
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
     errors = pd.read_excel(
         result.error_path,
@@ -186,7 +186,7 @@ def test_missing_marker_in_dedup_key_is_incomplete_not_duplicate(
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
 
     assert len(consolidated) == 2
@@ -241,7 +241,7 @@ def test_keep_first_is_deterministic_across_input_files(
 
     consolidated = pd.read_excel(
         result.report_path,
-        sheet_name="Consolidated",
+        sheet_name="Data",
     )
     errors = pd.read_excel(
         result.error_path,
