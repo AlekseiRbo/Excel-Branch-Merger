@@ -159,6 +159,16 @@ class CanvasButton:
         self._render()
 
 
+def default_config_path(base_dir: Path) -> Path:
+    """Return the preferred configuration file for the desktop GUI."""
+    for filename in ("processing.yaml", "processing.yml", "config.json"):
+        candidate = base_dir / filename
+        if candidate.is_file():
+            return candidate
+
+    return base_dir / "processing.yaml"
+
+
 class ExcelBranchMergerApp(tk.Tk):
     """Excel Branch Merger interface for a fixed 952 x 636 client area."""
 
@@ -179,10 +189,10 @@ class ExcelBranchMergerApp(tk.Tk):
         super().__init__()
         self.base_dir = Path(__file__).resolve().parent
         self.assets_dir = self.base_dir / "assets"
-        self.config_path = self.base_dir / "config.json"
 
         self.input_var = tk.StringVar(value=str(self.base_dir / "input"))
         self.output_var = tk.StringVar(value=str(self.base_dir / "output"))
+        self.config_var = tk.StringVar(value=str(default_config_path(self.base_dir)))
         self._result_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self._last_result: ProcessingResult | None = None
         self._image_refs: dict[str, ImageTk.PhotoImage] = {}
@@ -363,6 +373,43 @@ class ExcelBranchMergerApp(tk.Tk):
             fill=self.TEXT,
             font=("Segoe UI", -19, "bold"),
             anchor="w",
+        )
+
+        self.canvas.create_text(
+            203,
+            158,
+            text="Configuration file",
+            fill=self.MUTED,
+            font=("Segoe UI", -11),
+            anchor="w",
+        )
+
+        self.config_entry = tk.Entry(
+            self,
+            textvariable=self.config_var,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            bg="#FFFFFF",
+            fg="#1F2937",
+            insertbackground="#1F2937",
+            font=("Segoe UI", -11),
+        )
+        self.config_entry.place(x=330, y=149, width=467, height=17)
+
+        self._buttons["browse-config"] = CanvasButton(
+            self.canvas,
+            self,
+            "browse-config",
+            (820, 140, 108, 32),
+            "Browse",
+            self._choose_config,
+            icon=self.asset_folder_row,
+            role="outline-blue",
+            font_size=11,
+            icon_size=18,
+            icon_left=13,
+            radius=8,
         )
 
         self._place_image(
@@ -841,11 +888,39 @@ class ExcelBranchMergerApp(tk.Tk):
         if selected:
             self.output_var.set(selected)
 
+    def _choose_config(self) -> None:
+        current_path = Path(self.config_var.get()).expanduser()
+        initial_dir = (
+            current_path.parent if current_path.parent.is_dir() else self.base_dir
+        )
+
+        selected = filedialog.askopenfilename(
+            title="Select configuration file",
+            initialdir=str(initial_dir),
+            filetypes=[
+                ("YAML configuration", "*.yaml"),
+                ("YML configuration", "*.yml"),
+                ("Legacy JSON configuration", "*.json"),
+                ("All files", "*.*"),
+            ],
+        )
+        if selected:
+            self.config_var.set(selected)
+
     def _start_processing(self) -> None:
         input_dir = Path(self.input_var.get()).expanduser()
         output_dir = Path(self.output_var.get()).expanduser()
+        config_path = Path(self.config_var.get()).expanduser()
+
         if not input_dir.is_dir():
             messagebox.showerror(APP_NAME, "Please select a valid input folder.")
+            return
+
+        if not config_path.is_file():
+            messagebox.showerror(
+                APP_NAME,
+                "Please select a valid configuration file.",
+            )
             return
 
         if input_dir.resolve() == output_dir.resolve():
@@ -863,14 +938,19 @@ class ExcelBranchMergerApp(tk.Tk):
 
         worker = threading.Thread(
             target=self._run_processing,
-            args=(input_dir, output_dir),
+            args=(input_dir, output_dir, config_path),
             daemon=True,
         )
         worker.start()
 
-    def _run_processing(self, input_dir: Path, output_dir: Path) -> None:
+    def _run_processing(
+        self,
+        input_dir: Path,
+        output_dir: Path,
+        config_path: Path,
+    ) -> None:
         try:
-            config = load_config(self.config_path)
+            config = load_config(config_path)
             result = process_folder(
                 input_dir,
                 output_dir,
