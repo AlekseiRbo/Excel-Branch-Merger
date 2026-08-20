@@ -87,11 +87,19 @@ def _prepare_sheet(
     canonical_columns: dict[str, list[str]],
     required_fields: list[str],
     date_formats: list[str],
+    unmapped_columns: str = "preserve",
 ) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     if dataframe.empty and len(dataframe.columns) == 0:
         return dataframe.copy(), dataframe.copy(), True
 
     normalized = normalize_columns(dataframe, canonical_columns)
+
+    if unmapped_columns == "drop":
+        mapped_columns = [
+            name for name in canonical_columns if name in normalized.columns
+        ]
+        normalized = normalized.loc[:, mapped_columns].copy()
+
     missing_columns = [
         name for name in required_fields if name not in normalized.columns
     ]
@@ -235,10 +243,49 @@ def process_folder(
         and not path.name.startswith(".")
     )
 
-    canonical_columns = _cfg(config, "canonical_columns", "column_aliases", default={})
-    required_fields = list(_cfg(config, "required_fields", default=[]))
-    date_formats = list(_cfg(config, "date_formats", default=["%Y-%m-%d"]))
-    duplicate_key = list(_cfg(config, "duplicate_key", "duplicate_keys", default=[]))
+    fields_config = _cfg(config, "fields", default={})
+
+    if isinstance(fields_config, dict) and fields_config:
+        canonical_columns = {
+            field_name: list(field_spec.get("aliases", []))
+            for field_name, field_spec in fields_config.items()
+            if isinstance(field_spec, dict)
+        }
+
+        required_fields = [
+            field_name
+            for field_name, field_spec in fields_config.items()
+            if isinstance(field_spec, dict) and field_spec.get("required", False)
+        ]
+
+        sale_date_spec = fields_config.get("sale_date", {})
+        if isinstance(sale_date_spec, dict):
+            date_formats = list(sale_date_spec.get("formats", ["%Y-%m-%d"]))
+        else:
+            date_formats = ["%Y-%m-%d"]
+
+        deduplication = _cfg(config, "deduplication", default={})
+        if isinstance(deduplication, dict):
+            duplicate_key = list(deduplication.get("keys", []))
+        else:
+            duplicate_key = []
+    else:
+        canonical_columns = _cfg(
+            config,
+            "canonical_columns",
+            "column_aliases",
+            default={},
+        )
+        required_fields = list(_cfg(config, "required_fields", default=[]))
+        date_formats = list(_cfg(config, "date_formats", default=["%Y-%m-%d"]))
+        duplicate_key = list(
+            _cfg(
+                config,
+                "duplicate_key",
+                "duplicate_keys",
+                default=[],
+            )
+        )
 
     input_config = _cfg(config, "input", default={})
     if not isinstance(input_config, dict):
@@ -248,6 +295,7 @@ def process_folder(
         csv_config = {}
     csv_encoding = str(csv_config.get("encoding", "utf-8-sig"))
     csv_delimiter = str(csv_config.get("delimiter", ","))
+    unmapped_columns = str(input_config.get("unmapped_columns", "preserve"))
 
     valid_parts: list[pd.DataFrame] = []
     error_parts: list[pd.DataFrame] = []
@@ -305,6 +353,7 @@ def process_folder(
                     canonical_columns=canonical_columns,
                     required_fields=required_fields,
                     date_formats=date_formats,
+                    unmapped_columns=unmapped_columns,
                 )
             except Exception as exc:
                 error_rows = _source_error_rows(
@@ -361,6 +410,7 @@ def process_folder(
                         canonical_columns=canonical_columns,
                         required_fields=required_fields,
                         date_formats=date_formats,
+                        unmapped_columns=unmapped_columns,
                     )
                 except Exception as exc:
                     error_rows = _source_error_rows(
