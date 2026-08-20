@@ -281,6 +281,7 @@ def process_folder(
     )
 
     fields_config = _cfg(config, "fields", default={})
+    is_v14_profile = isinstance(fields_config, dict) and bool(fields_config)
     cleaning_fields: dict[str, dict[str, Any]] = {}
 
     if isinstance(fields_config, dict) and fields_config:
@@ -359,6 +360,14 @@ def process_folder(
     files_skipped = 0
     total_input_rows = 0
     log_lines: list[str] = []
+
+    if is_v14_profile:
+        log_lines.extend(
+            [
+                "START Excel Branch Merger",
+                f"INPUT Files discovered: {len(input_files)}",
+            ]
+        )
 
     for current, input_path in enumerate(input_files, start=1):
         if progress_callback:
@@ -584,8 +593,6 @@ def process_folder(
     log_lines.extend(
         f"SUMMARY {metric}: {value}" for metric, value in summary_values.items()
     )
-    is_v14_profile = isinstance(fields_config, dict) and bool(fields_config)
-
     if is_v14_profile:
         report_name = V14_REPORT_NAME
         error_name = V14_ERROR_NAME
@@ -596,6 +603,32 @@ def process_folder(
         error_name = ERROR_NAME
         log_name = LOG_NAME
         data_sheet_name = "Consolidated"
+
+    if is_v14_profile:
+        expected_row_total = len(consolidated) + invalid_count + duplicate_count
+
+        if total_input_rows == expected_row_total:
+            log_lines.append(
+                "INVARIANT rows: "
+                f"total_input={total_input_rows} "
+                f"valid={len(consolidated)} "
+                f"invalid={invalid_count} "
+                f"duplicate={duplicate_count}"
+            )
+        else:
+            log_lines.append(
+                "INVARIANT rows: unavailable "
+                "(file-level or source-level errors present)"
+            )
+
+        log_lines.extend(
+            [
+                f"OUTPUT {report_name}",
+                f"OUTPUT {error_name}",
+                f"OUTPUT {log_name}",
+                f"STATUS {status.value}",
+            ]
+        )
 
     output_config = _cfg(config, "output", default={})
     if not isinstance(output_config, dict):
