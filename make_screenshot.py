@@ -14,6 +14,9 @@ GENERATED_OUTPUTS = (
     "consolidated_report.xlsx",
     "error_report.xlsx",
     "processing_log.txt",
+    "Consolidated.xlsx",
+    "Errors.xlsx",
+    "processing.log",
 )
 
 
@@ -29,7 +32,7 @@ def clean_generated_outputs(output_dir: Path) -> None:
 
 def main() -> None:
     project_dir = Path(__file__).resolve().parent
-    input_dir = project_dir / "input"
+    input_dir = project_dir / "demo" / "v1.4" / "input"
     output_dir = project_dir / "output"
     screenshot_dir = project_dir / "screenshots"
     screenshot_path = screenshot_dir / "application.png"
@@ -39,13 +42,14 @@ def main() -> None:
     try:
         app.update_idletasks()
 
-        config = load_config(project_dir / "config.json")
+        config = load_config(project_dir / "demo" / "v1.4" / "processing.yaml")
         result = process_folder(input_dir, output_dir, config)
         app._handle_success(result)
 
         # Keep the portfolio screenshot free from personal machine paths.
-        app.input_var.set(r".\input")
+        app.input_var.set(r".\demo\v1.4\input")
         app.output_var.set(r".\output")
+        app.config_var.set(r".\demo\v1.4\processing.yaml")
 
         app.lift()
         app.attributes("-topmost", True)

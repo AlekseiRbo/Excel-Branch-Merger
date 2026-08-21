@@ -2,10 +2,15 @@
 setlocal
 cd /d "%~dp0"
 
-set "PYTHON=.venv\Scripts\python.exe"
-if not exist "%PYTHON%" set "PYTHON=python"
+where uv >nul 2>nul
+if errorlevel 1 (
+    echo uv was not found on PATH.
+    echo Install uv, then run: uv sync --locked
+    pause
+    exit /b 1
+)
 
-"%PYTHON%" make_screenshot.py
+uv run --locked python make_screenshot.py
 if errorlevel 1 (
     echo.
     echo Screenshot generation failed.
@@ -16,3 +21,4 @@ if errorlevel 1 (
 echo.
 echo Screenshot updated: screenshots\application.png
 pause
+endlocal

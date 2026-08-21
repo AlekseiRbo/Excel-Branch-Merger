@@ -1,17 +1,16 @@
 @echo off
+setlocal
 cd /d "%~dp0"
-title Excel Branch Merger v1.1
+title Excel Branch Merger
 
-if not exist ".venv\Scripts\python.exe" (
-    echo Virtual environment not found.
-    echo.
-    echo Create it with:
-    echo   python -m venv .venv
-    echo   .venv\Scripts\python.exe -m pip install -r requirements.txt
-    echo.
+where uv >nul 2>nul
+if errorlevel 1 (
+    echo uv was not found on PATH.
+    echo Install uv, then run: uv sync --locked
     pause
     exit /b 1
 )
 
-".venv\Scripts\python.exe" gui.py
+uv run --locked python gui.py
 if errorlevel 1 pause
+endlocal
