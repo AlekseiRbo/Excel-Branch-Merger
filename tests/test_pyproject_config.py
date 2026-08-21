@@ -13,7 +13,7 @@ def test_pyproject_contains_canonical_project_metadata() -> None:
     project = data["project"]
 
     assert project["name"] == "excel-branch-merger"
-    assert project["version"] == "1.3"
+    assert project["version"] == "1.4"
     assert project["requires-python"] == ">=3.11"
     assert project["license"] == "MIT"
 
